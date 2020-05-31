@@ -45,6 +45,8 @@ use Smalot\PdfParser\Element\ElementXRef;
  */
 class Parser
 {
+    public static $horizontalOffset;
+
     /**
      * @var PDFObject[]
      */
