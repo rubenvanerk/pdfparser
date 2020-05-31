@@ -67,6 +67,11 @@ class PDFObject
     protected $content = null;
 
     /**
+     * @var string
+     */
+    public $horizontalOffset = ' ';
+
+    /**
      * @param Header $header
      * @param string $content
      */
@@ -284,7 +289,7 @@ class PDFObject
                             )
                         ) {
                             // horizontal offset
-                            $text .= ' ';
+                            $text .= $this->horizontalOffset;
                         }
                         $current_position_td = ['x' => $x, 'y' => $y];
                         break;
