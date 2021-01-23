@@ -67,14 +67,25 @@ class PDFObject
     protected $content = null;
 
     /**
+     * @var Config
+     */
+    protected $config;
+
+    /**
      * @param Header $header
      * @param string $content
+     * @param Config $config
      */
-    public function __construct(Document $document, Header $header = null, $content = null)
-    {
+    public function __construct(
+        Document $document,
+        Header $header = null,
+        $content = null,
+        Config $config = null
+    ) {
         $this->document = $document;
         $this->header = null !== $header ? $header : new Header();
         $this->content = $content;
+        $this->config = $config;
     }
 
     public function init()
@@ -100,7 +111,7 @@ class PDFObject
     }
 
     /**
-     * @param $name
+     * @param string $name
      *
      * @return bool
      */
@@ -128,7 +139,7 @@ class PDFObject
     }
 
     /**
-     * @param $content
+     * @param string $content
      */
     public function cleanContent($content, $char = 'X')
     {
@@ -190,7 +201,7 @@ class PDFObject
     }
 
     /**
-     * @param $content
+     * @param string $content
      *
      * @return array
      */
@@ -231,8 +242,24 @@ class PDFObject
         return $sections;
     }
 
+    private function getDefaultFont(Page $page = null)
+    {
+        $fonts = [];
+        if (null !== $page) {
+            $fonts = $page->getFonts();
+        }
+
+        $fonts = array_merge($fonts, array_values($this->document->getFonts()));
+
+        if (\count($fonts) > 0) {
+            return reset($fonts);
+        }
+
+        return new Font($this->document);
+    }
+
     /**
-     * @param Page
+     * @param Page $page
      *
      * @return string
      *
@@ -242,23 +269,12 @@ class PDFObject
     {
         $text = '';
         $sections = $this->getSectionsText($this->content);
-        $current_font = null;
-
-        foreach ($this->document->getObjects() as $obj) {
-            if ($obj instanceof Font) {
-                $current_font = $obj;
-                break;
-            }
-        }
-
-        if (null === $current_font) {
-            $current_font = new Font($this->document);
-        }
+        $current_font = $this->getDefaultFont($page);
 
         $current_position_td = ['x' => false, 'y' => false];
         $current_position_tm = ['x' => false, 'y' => false];
 
-        array_push(self::$recursionStack, $this->getUniqueId());
+        self::$recursionStack[] = $this->getUniqueId();
 
         foreach ($sections as $section) {
             $commands = $this->getCommandsText($section);
@@ -305,7 +321,15 @@ class PDFObject
                         list($id) = preg_split('/\s/s', $command[self::COMMAND]);
                         $id = trim($id, '/');
                         if (null !== $page) {
-                            $current_font = $page->getFont($id);
+                            $new_font = $page->getFont($id);
+                            // If an invalid font ID is given, do not update the font.
+                            // This should theoretically never happen, as the PDF spec states for the Tf operator:
+                            // "The specified font value shall match a resource name in the Font entry of the default resource dictionary"
+                            // (https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf, page 435)
+                            // But we want to make sure that malformed PDFs do not simply crash.
+                            if (null !== $new_font) {
+                                $current_font = $new_font;
+                            }
                         }
                         break;
 
@@ -314,14 +338,6 @@ class PDFObject
                         $command[self::COMMAND] = [$command];
                         // no break
                     case 'TJ':
-                        // Skip if not previously defined, should never happened.
-                        if (null === $current_font) {
-                            // Fallback
-                            // TODO : Improve
-                            $text .= $command[self::COMMAND][0][self::COMMAND];
-                            break;
-                        }
-
                         $sub_text = $current_font->decodeText($command[self::COMMAND]);
                         $text .= $sub_text;
                         break;
@@ -430,7 +446,7 @@ class PDFObject
     }
 
     /**
-     * @param Page
+     * @param Page $page
      *
      * @return array
      *
@@ -460,9 +476,11 @@ class PDFObject
                         break;
 
                     case 'Tf':
-                        list($id) = preg_split('/\s/s', $command[self::COMMAND]);
-                        $id = trim($id, '/');
-                        $current_font = $page->getFont($id);
+                        if (null !== $page) {
+                            list($id) = preg_split('/\s/s', $command[self::COMMAND]);
+                            $id = trim($id, '/');
+                            $current_font = $page->getFont($id);
+                        }
                         break;
 
                     case "'":
@@ -470,14 +488,6 @@ class PDFObject
                         $command[self::COMMAND] = [$command];
                         // no break
                     case 'TJ':
-                        // Skip if not previously defined, should never happened.
-                        if (null === $current_font) {
-                            // Fallback
-                            // TODO : Improve
-                            $text[] = $command[self::COMMAND][0][self::COMMAND];
-                            break;
-                        }
-
                         $sub_text = $current_font->decodeText($command[self::COMMAND]);
                         $text[] = $sub_text;
                         break;
@@ -682,7 +692,6 @@ class PDFObject
                     break;
 
                 default:
-
                     if ('ET' == substr($text_part, $offset, 2)) {
                         break;
                     } elseif (preg_match(
@@ -721,50 +730,49 @@ class PDFObject
     }
 
     /**
-     * @param $document Document
-     * @param $header   Header
-     * @param $content  string
+     * @param string $content
      *
      * @return PDFObject
      */
-    public static function factory(Document $document, Header $header, $content)
-    {
+    public static function factory(
+        Document $document,
+        Header $header,
+        $content,
+        Config $config = null
+    ) {
         switch ($header->get('Type')->getContent()) {
             case 'XObject':
                 switch ($header->get('Subtype')->getContent()) {
                     case 'Image':
-                        return new Image($document, $header, $content);
+                        return new Image($document, $header, $content, $config);
 
                     case 'Form':
-                        return new Form($document, $header, $content);
-
-                    default:
-                        return new self($document, $header, $content);
+                        return new Form($document, $header, $content, $config);
                 }
-                break;
+
+                return new self($document, $header, $content, $config);
 
             case 'Pages':
-                return new Pages($document, $header, $content);
+                return new Pages($document, $header, $content, $config);
 
             case 'Page':
-                return new Page($document, $header, $content);
+                return new Page($document, $header, $content, $config);
 
             case 'Encoding':
-                return new Encoding($document, $header, $content);
+                return new Encoding($document, $header, $content, $config);
 
             case 'Font':
                 $subtype = $header->get('Subtype')->getContent();
                 $classname = '\Smalot\PdfParser\Font\Font'.$subtype;
 
                 if (class_exists($classname)) {
-                    return new $classname($document, $header, $content);
-                } else {
-                    return new Font($document, $header, $content);
+                    return new $classname($document, $header, $content, $config);
                 }
 
-                // no break
+                return new Font($document, $header, $content, $config);
+
             default:
-                return new self($document, $header, $content);
+                return new self($document, $header, $content, $config);
         }
     }
 

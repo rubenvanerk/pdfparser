@@ -30,7 +30,9 @@
 
 namespace Smalot\PdfParser;
 
+use Exception;
 use Smalot\PdfParser\Element\ElementNumeric;
+use Smalot\PdfParser\Encoding\PostScriptGlyphs;
 
 /**
  * Class Encoding
@@ -56,19 +58,12 @@ class Encoding extends PDFObject
     {
         $this->mapping = [];
         $this->differences = [];
-        $this->encoding = null;
+        $this->encoding = [];
 
         if ($this->has('BaseEncoding')) {
-            // Load reference table charset.
-            $baseEncoding = preg_replace('/[^A-Z0-9]/is', '', $this->get('BaseEncoding')->getContent());
-            $className = '\\Smalot\\PdfParser\\Encoding\\'.$baseEncoding;
-
-            if (class_exists($className)) {
-                $class = new $className();
-                $this->encoding = $class->getTranslations();
-            } else {
-                throw new \Exception('Missing encoding data for: "'.$baseEncoding.'".');
-            }
+            $className = $this->getEncodingClass();
+            $class = new $className();
+            $this->encoding = $class->getTranslations();
 
             // Build table including differences.
             $differences = $this->get('Differences')->getContent();
@@ -86,22 +81,19 @@ class Encoding extends PDFObject
                 }
 
                 // ElementName
+                $this->differences[$code] = $difference;
                 if (\is_object($difference)) {
                     $this->differences[$code] = $difference->getContent();
-                } else {
-                    $this->differences[$code] = $difference;
                 }
 
                 // For the next char.
                 ++$code;
             }
 
-            // Build final mapping (custom => standard).
-            $table = array_flip(array_reverse($this->encoding, true));
-
+            $this->mapping = $this->encoding;
             foreach ($this->differences as $code => $difference) {
                 /* @var string $difference */
-                $this->mapping[$code] = (isset($table[$difference]) ? $table[$difference] : Font::MISSING);
+                $this->mapping[$code] = $difference;
             }
         }
     }
@@ -130,6 +122,34 @@ class Encoding extends PDFObject
             $dec = $this->mapping[$dec];
         }
 
-        return $dec;
+        return PostScriptGlyphs::getCodePoint($dec);
+    }
+
+    /**
+     * @return string
+     *
+     * @throws \Exception
+     */
+    public function __toString()
+    {
+        return $this->getEncodingClass();
+    }
+
+    /**
+     * @return string
+     *
+     * @throws \Exception
+     */
+    protected function getEncodingClass()
+    {
+        // Load reference table charset.
+        $baseEncoding = preg_replace('/[^A-Z0-9]/is', '', $this->get('BaseEncoding')->getContent());
+        $className = '\\Smalot\\PdfParser\\Encoding\\'.$baseEncoding;
+
+        if (!class_exists($className)) {
+            throw new Exception('Missing encoding data for: "'.$baseEncoding.'".');
+        }
+
+        return $className;
     }
 }

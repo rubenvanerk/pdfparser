@@ -40,10 +40,9 @@ use Smalot\PdfParser\Font;
 class ElementName extends Element
 {
     /**
-     * @param string   $value
-     * @param Document $document
+     * @param string $value
      */
-    public function __construct($value, Document $document = null)
+    public function __construct($value)
     {
         parent::__construct($value, null);
     }
@@ -65,12 +64,12 @@ class ElementName extends Element
      */
     public static function parse($content, Document $document = null, &$offset = 0)
     {
-        if (preg_match('/^\s*\/(?P<name>[A-Z0-9\-\+,#\.]+)/is', $content, $match)) {
-            $name = $match['name'];
+        if (preg_match('/^\s*\/([A-Z0-9\-\+,#\.]+)/is', $content, $match)) {
+            $name = $match[1];
             $offset += strpos($content, $name) + \strlen($name);
             $name = Font::decodeEntities($name);
 
-            return new self($name, $document);
+            return new self($name);
         }
 
         return false;

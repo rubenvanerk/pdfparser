@@ -51,9 +51,6 @@ class Element
      */
     protected $document = null;
 
-    /**
-     * @var mixed
-     */
     protected $value = null;
 
     /**
@@ -91,9 +88,9 @@ class Element
             }
 
             return false;
-        } else {
-            return $this->equals($value);
         }
+
+        return $this->equals($value);
     }
 
     public function getContent()
